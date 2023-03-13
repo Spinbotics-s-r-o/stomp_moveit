@@ -13,6 +13,7 @@
 #include <stomp_moveit_parameters.hpp>
 
 #include <moveit/constraint_samplers/constraint_sampler_manager.h>
+#include <angles/angles.h>
 
 namespace stomp_moveit
 {
@@ -108,6 +109,24 @@ bool StompPlanningContext::solve(planning_interface::MotionPlanResponse& res)
   const auto config = getStompConfig(params_, group->getActiveJointModels().size() /* num_dimensions */);
   const auto task = createStompTask(config, *this);
   stomp_ = std::make_shared<stomp::Stomp>(config, task);
+
+  // fix the goal to move the shortest angular distance for wrap-around joints:
+  for (size_t i = 0; i < group->getActiveJointModels().size(); ++i)
+  {
+    const moveit::core::JointModel* model = group->getActiveJointModels()[i];
+    const moveit::core::RevoluteJointModel* revolute_joint =
+        dynamic_cast<const moveit::core::RevoluteJointModel*>(model);
+
+    if (revolute_joint != nullptr)
+    {
+      if (revolute_joint->isContinuous())
+      {
+        double start = start_state.getVariablePosition(i);
+        double end = goal_state.getVariablePosition(i);
+        goal_state.setVariablePosition(i, start + angles::shortest_angular_distance(start, end));
+      }
+    }
+  }
 
   // Timeout async task
   auto timeout_future = std::async(std::launch::async, [&, stomp = stomp_]() {
