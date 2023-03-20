@@ -87,7 +87,7 @@ CostFn get_collision_cost_function(const std::shared_ptr<const planning_scene::P
            j <= std::min(values.cols() - 1, end + static_cast<long>(sigma)); ++j)
       {
         costs(j) +=
-            std::exp(-std::pow(j - mu, 2) / (2 * std::pow(sigma, 2))) / (sigma * std::sqrt(2 * mu)) * window_size;
+            std::exp(-std::pow(j - mu, 2) / (2 * std::pow(sigma, 2))) / (sigma * std::sqrt(2 * std::max(0.01, mu))) * window_size;
       }
     }
 
