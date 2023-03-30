@@ -14,6 +14,7 @@
 
 #include <moveit/constraint_samplers/constraint_sampler_manager.h>
 #include <moveit/robot_state/conversions.h>
+
 #include <angles/angles.h>
 
 namespace stomp_moveit
@@ -156,42 +157,71 @@ bool StompPlanningContext::solve(planning_interface::MotionPlanResponse& res)
   const auto& req = getMotionPlanRequest();
   const moveit::core::RobotState start_state(*getPlanningScene()->getCurrentStateUpdated(req.start_state));
   moveit::core::RobotState goal_state(start_state);
-  constraint_samplers::ConstraintSamplerManager sampler_manager;
-  auto goal_sampler = sampler_manager.selectSampler(getPlanningScene(), getGroupName(), req.goal_constraints.at(0));
-  if (!goal_sampler || !goal_sampler->sample(goal_state))
-  {
-    result_code = moveit_msgs::msg::MoveItErrorCodes::INVALID_GOAL_CONSTRAINTS;
-    return false;  // Can't plan without valid goal state
-  }
 
   // STOMP config, task, planner instance
   const auto group = getPlanningScene()->getRobotModel()->getJointModelGroup(getGroupName());
   auto config = getStompConfig(params_, group->getActiveJointModels().size() /* num_dimensions */);
   robot_trajectory::RobotTrajectoryPtr input_trajectory;
-  if (extractSeedTrajectory(request_, input_trajectory) && !input_trajectory->empty())
+  if (extractSeedTrajectory(request_, getPlanningScene()->getRobotModel(), input_trajectory) && !input_trajectory->empty()) {
     config.num_timesteps = input_trajectory->size();
-  const auto task = createStompTask(config, *this);
-  stomp_ = std::make_shared<stomp::Stomp>(config, task);
 
-  // fix the goal to move the shortest angular distance for wrap-around joints:
-  for (size_t i = 0; i < group->getActiveJointModels().size(); ++i)
-  {
-    const moveit::core::JointModel* model = group->getActiveJointModels()[i];
-    const moveit::core::RevoluteJointModel* revolute_joint =
-        dynamic_cast<const moveit::core::RevoluteJointModel*>(model);
-
-    if (revolute_joint != nullptr)
+    // fix the goal to move the shortest angular distance for wrap-around joints:
+    for (size_t i = 0; i < group->getActiveJointModels().size(); ++i)
     {
-      if (revolute_joint->isContinuous())
+      const moveit::core::JointModel* model = group->getActiveJointModels()[i];
+      const moveit::core::RevoluteJointModel* revolute_joint =
+          dynamic_cast<const moveit::core::RevoluteJointModel*>(model);
+
+      if (revolute_joint != nullptr)
       {
-        double start = start_state.getVariablePosition(i);
-        double end = goal_state.getVariablePosition(i);
-        goal_state.setVariablePosition(i, start + angles::shortest_angular_distance(start, end));
+        if (revolute_joint->isContinuous())
+        {
+          std::vector<double> pos(1);
+          double lastPos = std::numeric_limits<double>::infinity();
+          for (auto it : *input_trajectory) {
+            double currentPos = it.first->getJointPositions(model)[0];
+            if (std::isfinite(lastPos)) {
+              pos[0] = lastPos + angles::shortest_angular_distance(lastPos, currentPos);
+              it.first->setJointPositions(model, pos);
+              lastPos = pos[0];
+            }
+            else
+              lastPos = currentPos;
+          }
+        }
       }
     }
   }
+  else {
+    constraint_samplers::ConstraintSamplerManager sampler_manager;
+    auto goal_sampler = sampler_manager.selectSampler(getPlanningScene(), getGroupName(), req.goal_constraints.at(0));
+    if (!goal_sampler || !goal_sampler->sample(goal_state))
+    {
+      result_code = moveit_msgs::msg::MoveItErrorCodes::INVALID_GOAL_CONSTRAINTS;
+      return false;  // Can't plan without valid goal state
+    }
 
-  // Timeout async task
+    // fix the goal to move the shortest angular distance for wrap-around joints:
+    for (size_t i = 0; i < group->getActiveJointModels().size(); ++i)
+    {
+      const moveit::core::JointModel* model = group->getActiveJointModels()[i];
+      const moveit::core::RevoluteJointModel* revolute_joint =
+          dynamic_cast<const moveit::core::RevoluteJointModel*>(model);
+
+      if (revolute_joint != nullptr)
+      {
+        if (revolute_joint->isContinuous())
+        {
+          double start = start_state.getVariablePosition(i);
+          double end = goal_state.getVariablePosition(i);
+          goal_state.setVariablePosition(i, start + angles::shortest_angular_distance(start, end));
+        }
+      }
+    }
+  }
+  const auto task = createStompTask(config, *this);
+  stomp_ = std::make_shared<stomp::Stomp>(config, task);
+
   std::condition_variable cv;
   std::mutex cv_mutex;
   bool finished = false;
