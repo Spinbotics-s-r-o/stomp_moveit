@@ -28,7 +28,8 @@ bool solveWithStomp(const std::shared_ptr<stomp::Stomp>& stomp, const moveit::co
   bool success;
   if (!input_trajectory || input_trajectory->empty())
     success = stomp->solve(get_positions(start_state, joints), get_positions(goal_state, joints), waypoints);
-  else {
+  else
+  {
     auto input = robot_trajectory_to_matrix(*input_trajectory);
     success = stomp->solve(input, waypoints);
   }
@@ -39,6 +40,57 @@ bool solveWithStomp(const std::shared_ptr<stomp::Stomp>& stomp, const moveit::co
   }
 
   return success;
+}
+
+bool extractSeedTrajectory(const planning_interface::MotionPlanRequest& req,
+                           const moveit::core::RobotModelConstPtr robot_model,
+                           robot_trajectory::RobotTrajectoryPtr& seed)
+{
+  if (req.trajectory_constraints.constraints.empty())
+    return false;
+
+  const auto* joint_group = robot_model->getJointModelGroup(req.group_name);
+  const auto& names = joint_group->getActiveJointModelNames();
+  const auto dof = names.size();
+
+  trajectory_msgs::msg::JointTrajectory seed_traj;
+  const auto& constraints = req.trajectory_constraints.constraints;  // alias to keep names short
+  // Test the first point to ensure that it has all of the joints required
+  for (size_t i = 0; i < constraints.size(); ++i)
+  {
+    auto n = constraints[i].joint_constraints.size();
+    if (n != dof)
+    {  // first test to ensure that dimensionality is correct
+      RCLCPP_WARN(rclcpp::get_logger("stomp_moveit"),
+                  "Seed trajectory index %lu does not have %lu constraints (has %lu instead).", i, dof, n);
+      return false;
+    }
+
+    trajectory_msgs::msg::JointTrajectoryPoint joint_pt;
+
+    for (size_t j = 0; j < constraints[i].joint_constraints.size(); ++j)
+    {
+      const auto& c = constraints[i].joint_constraints[j];
+      if (c.joint_name != names[j])
+      {
+        RCLCPP_WARN(rclcpp::get_logger("stomp_moveit"),
+                    "Seed trajectory (index %lu, joint %lu) joint name '%s' does not match expected name '%s'", i, j,
+                    c.joint_name.c_str(), names[j].c_str());
+        return false;
+      }
+      joint_pt.positions.push_back(c.position);
+    }
+
+    seed_traj.points.push_back(joint_pt);
+  }
+  seed_traj.joint_names = names;
+
+  moveit::core::RobotState robot_state(robot_model);
+  moveit::core::robotStateMsgToRobotState(req.start_state, robot_state);
+  seed = std::make_shared<robot_trajectory::RobotTrajectory>(robot_model, joint_group);
+  seed->setRobotTrajectoryMsg(robot_state, seed_traj);
+
+  return !seed->empty();
 }
 
 stomp::TaskPtr createStompTask(const stomp::StompConfiguration& config, const StompPlanningContext& context)
@@ -142,11 +194,11 @@ bool StompPlanningContext::solve(planning_interface::MotionPlanResponse& res)
   // Timeout async task
   std::condition_variable cv;
   std::mutex cv_mutex;
-  bool finished;
+  bool finished = false;
   auto timeout_future = std::async(std::launch::async, [&, stomp = stomp_]() {
     std::unique_lock<std::mutex> lock(cv_mutex);
     cv.wait_for(lock, std::chrono::duration<double>(req.allowed_planning_time), [&finished]{return finished;});
-    if (stomp_ == stomp)
+    if (!finished)
     {
       stomp->cancel();
     }
@@ -167,7 +219,7 @@ bool StompPlanningContext::solve(planning_interface::MotionPlanResponse& res)
     finished = true;
     cv.notify_all();
   }
-  
+
   // Stop time
   std::chrono::duration<double> elapsed_seconds = std::chrono::steady_clock::now() - time_start;
   planning_time = elapsed_seconds.count();
@@ -195,50 +247,4 @@ bool StompPlanningContext::terminate()
 void StompPlanningContext::clear()
 {
 }
-
-bool StompPlanningContext::extractSeedTrajectory(const planning_interface::MotionPlanRequest& req, robot_trajectory::RobotTrajectoryPtr& seed) const
-{
-  if (req.trajectory_constraints.constraints.empty())
-    return false;
-
-  const auto* joint_group = getPlanningScene()->getRobotModel()->getJointModelGroup(group_);
-  const auto& names = joint_group->getActiveJointModelNames();
-  const auto dof = names.size();
-
-  trajectory_msgs::msg::JointTrajectory seed_traj;
-  const auto& constraints = req.trajectory_constraints.constraints; // alias to keep names short
-  // Test the first point to ensure that it has all of the joints required
-  for (size_t i = 0; i < constraints.size(); ++i) {
-    auto n = constraints[i].joint_constraints.size();
-    if (n != dof) {  // first test to ensure that dimensionality is correct
-      RCLCPP_WARN(rclcpp::get_logger("stomp_moveit"),
-                  "Seed trajectory index %lu does not have %lu constraints (has %lu instead).", i, dof, n);
-      return false;
-    }
-
-    trajectory_msgs::msg::JointTrajectoryPoint joint_pt;
-
-    for (size_t j = 0; j < constraints[i].joint_constraints.size(); ++j) {
-      const auto &c = constraints[i].joint_constraints[j];
-      if (c.joint_name != names[j]) {
-        RCLCPP_WARN(rclcpp::get_logger("stomp_moveit"),
-                    "Seed trajectory (index %lu, joint %lu) joint name '%s' does not match expected name '%s'",
-                    i, j, c.joint_name.c_str(), names[j].c_str());
-        return false;
-      }
-      joint_pt.positions.push_back(c.position);
-    }
-
-    seed_traj.points.push_back(joint_pt);
-  }
-  seed_traj.joint_names = names;
-
-  moveit::core::RobotState robot_state(planning_scene_->getRobotModel());
-  moveit::core::robotStateMsgToRobotState(req.start_state, robot_state);
-  seed = std::make_shared<robot_trajectory::RobotTrajectory>(planning_scene_->getRobotModel(), req.group_name);
-  seed->setRobotTrajectoryMsg(robot_state, seed_traj);
-
-  return true;
-}
-
 }  // namespace stomp_moveit
