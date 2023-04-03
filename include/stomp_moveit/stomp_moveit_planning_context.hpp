@@ -28,5 +28,6 @@ public:
 private:
   const stomp_moveit::Params params_;
   std::shared_ptr<stomp::Stomp> stomp_;
+  planning_scene::PlanningScenePtr planning_scene_stomp_;
 };
 }  // namespace stomp_moveit

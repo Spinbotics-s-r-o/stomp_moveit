@@ -27,6 +27,11 @@ CostFn get_collision_cost_function(const std::shared_ptr<const planning_scene::P
     std::vector<std::pair<long, long>> collision_windows;
     bool in_collision_window = false;
 
+//    collision_detection::CollisionRequest collision_request;
+//    collision_request.group_name = "spinbot_gripper";  // TODO: hardcoded group name!
+//    collision_request.distance = true;
+//    collision_detection::CollisionResult collision_result;
+
     // Iterate over sample waypoint pairs and check for collisions in each segment.
     // If a collision is found, weighted penalty costs are applied to both waypoints.
     // Subsequent collisions are assumed to have the same cause (same object), so
@@ -46,7 +51,17 @@ CostFn get_collision_cost_function(const std::shared_ptr<const planning_scene::P
         Eigen::VectorXd sample_vec = (1 - interpolation_fraction) * current + interpolation_fraction * next;
         set_joint_positions(sample_vec, joints, sample_state);
         sample_state.update();
-        found_collision = planning_scene->isStateColliding(sample_state, group_name);
+
+//        planning_scene->checkCollision(collision_request, collision_result, *sample_state);
+//        found_collision = collision_result.collision || collision_result.distance != -1 && collision_result.distance < 0.005;
+//        planning_scene->checkSelfCollision(collision_request, collision_result, *sample_state);
+//        found_collision = found_collision || collision_result.collision || collision_result.distance != -1 && collision_result.distance < 0.005;
+//        bool col = planning_scene->isStateColliding(*sample_state, "");
+//        bool col2 = planning_scene->isStateColliding(*sample_state, group_name);
+        found_collision = planning_scene->isStateColliding(*sample_state, "spinbot_gripper");
+//        double dst_to_col = planning_scene->distanceToCollisionUnpadded(*sample_state);
+//        found_collision = dst_to_col != -1 && dst_to_col < 0.005;
+
         interpolation_fraction += interpolation_step;
       }
 

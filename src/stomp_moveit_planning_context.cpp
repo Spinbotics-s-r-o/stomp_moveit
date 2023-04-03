@@ -98,7 +98,7 @@ stomp::TaskPtr createStompTask(const stomp::StompConfiguration& config, const St
 {
   const size_t num_timesteps = config.num_timesteps;
   const double collision_penalty = 1.0;
-  const auto planning_scene = context.getPlanningScene();
+  const auto planning_scene = context.getStompPlanningScene();
   const auto group = planning_scene->getRobotModel()->getJointModelGroup(context.getGroupName());
   const std::vector<double> stddev(group->getActiveJointModels().size(), 0.1);
 
@@ -142,11 +142,17 @@ StompPlanningContext::StompPlanningContext(const std::string& name, const std::s
 {
 }
 
+planning_scene::PlanningScenePtr StompPlanningContext::getStompPlanningScene() const
+{
+  return planning_scene_stomp_;
+}
+
 bool StompPlanningContext::solve(planning_interface::MotionPlanResponse& res)
 {
   // Start time
   auto time_start = std::chrono::steady_clock::now();
 
+  planning_scene_stomp_ = planning_scene::PlanningScene::clone(getPlanningScene());
   // Response output
   auto& trajectory = res.trajectory_;
   auto& planning_time = res.planning_time_;
@@ -155,14 +161,14 @@ bool StompPlanningContext::solve(planning_interface::MotionPlanResponse& res)
 
   // Extract start and goal states
   const auto& req = getMotionPlanRequest();
-  const moveit::core::RobotState start_state(*getPlanningScene()->getCurrentStateUpdated(req.start_state));
+  const moveit::core::RobotState start_state(*planning_scene_stomp_->getCurrentStateUpdated(req.start_state));
   moveit::core::RobotState goal_state(start_state);
 
   // STOMP config, task, planner instance
-  const auto group = getPlanningScene()->getRobotModel()->getJointModelGroup(getGroupName());
+  const auto group = planning_scene_stomp_->getRobotModel()->getJointModelGroup(getGroupName());
   auto config = getStompConfig(params_, group->getActiveJointModels().size() /* num_dimensions */);
   robot_trajectory::RobotTrajectoryPtr input_trajectory;
-  if (extractSeedTrajectory(request_, getPlanningScene()->getRobotModel(), input_trajectory) && !input_trajectory->empty()) {
+  if (extractSeedTrajectory(request_, planning_scene_stomp_->getRobotModel(), input_trajectory) && !input_trajectory->empty()) {
     config.num_timesteps = input_trajectory->size();
 
     // fix the goal to move the shortest angular distance for wrap-around joints:
@@ -194,7 +200,7 @@ bool StompPlanningContext::solve(planning_interface::MotionPlanResponse& res)
   }
   else {
     constraint_samplers::ConstraintSamplerManager sampler_manager;
-    auto goal_sampler = sampler_manager.selectSampler(getPlanningScene(), getGroupName(), req.goal_constraints.at(0));
+    auto goal_sampler = sampler_manager.selectSampler(planning_scene_stomp_, getGroupName(), req.goal_constraints.at(0));
     if (!goal_sampler || !goal_sampler->sample(goal_state))
     {
       result_code = moveit_msgs::msg::MoveItErrorCodes::INVALID_GOAL_CONSTRAINTS;
@@ -219,6 +225,10 @@ bool StompPlanningContext::solve(planning_interface::MotionPlanResponse& res)
       }
     }
   }
+
+  for (auto &link : planning_scene_stomp_->getRobotModel()->getLinkModelNames())
+    planning_scene_stomp_->getCollisionEnvNonConst()->setLinkPadding(link, 0.01);
+
   const auto task = createStompTask(config, *this);
   stomp_ = std::make_shared<stomp::Stomp>(config, task);
 
