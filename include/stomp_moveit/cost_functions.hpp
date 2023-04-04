@@ -18,9 +18,8 @@ CostFn get_collision_cost_function(const std::shared_ptr<const planning_scene::P
   const auto& joints = group ? group->getActiveJointModels() : planning_scene->getRobotModel()->getActiveJointModels();
   const auto& group_name = group ? group->getName() : "";
 
+  auto sample_state = std::make_shared<moveit::core::RobotState>(planning_scene->getCurrentState());
   CostFn cost_fn = [=](const Eigen::MatrixXd& values, Eigen::VectorXd& costs, bool& validity) {
-    static thread_local moveit::core::RobotState sample_state(planning_scene->getCurrentState());
-
     costs.setZero(values.cols());
 
     validity = true;
@@ -49,8 +48,8 @@ CostFn get_collision_cost_function(const std::shared_ptr<const planning_scene::P
       while (!found_collision && interpolation_fraction < 1.0)
       {
         Eigen::VectorXd sample_vec = (1 - interpolation_fraction) * current + interpolation_fraction * next;
-        set_joint_positions(sample_vec, joints, sample_state);
-        sample_state.update();
+        set_joint_positions(sample_vec, joints, *sample_state);
+        sample_state->update();
 
 //        planning_scene->checkCollision(collision_request, collision_result, *sample_state);
 //        found_collision = collision_result.collision || collision_result.distance != -1 && collision_result.distance < 0.005;
