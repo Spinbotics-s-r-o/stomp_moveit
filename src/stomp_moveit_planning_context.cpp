@@ -107,7 +107,7 @@ stomp::TaskPtr createStompTask(const stomp::StompConfiguration& config, const St
   // The iteration and done callbacks are used for path and trajectory visualization.
   using namespace stomp_moveit;
   auto noise_generator_fn = noise::get_normal_distribution_generator(num_timesteps, stddev);
-  auto cost_fn = costs::get_collision_cost_function(planning_scene, group, collision_penalty);
+  auto cost_fn = costs::get_collision_cost_function(planning_scene, group, collision_penalty, context.getParams().collision_group);
   auto filter_fn = filters::simple_smoothing_matrix(num_timesteps);
   // TODO: enable support for visualization
   // auto iteration_callback_fn = visualization::get_iteration_path_publisher(visual_tools, group);
@@ -227,7 +227,7 @@ bool StompPlanningContext::solve(planning_interface::MotionPlanResponse& res)
   }
 
   for (auto &link : planning_scene_stomp_->getRobotModel()->getLinkModelNames())
-    planning_scene_stomp_->getCollisionEnvNonConst()->setLinkPadding(link, 0.01);
+    planning_scene_stomp_->getCollisionEnvNonConst()->setLinkPadding(link, params_.links_padding);
 
   const auto task = createStompTask(config, *this);
   stomp_ = std::make_shared<stomp::Stomp>(config, task);
@@ -286,5 +286,9 @@ bool StompPlanningContext::terminate()
 
 void StompPlanningContext::clear()
 {
+}
+
+const Params &StompPlanningContext::getParams() const {
+  return params_;
 }
 }  // namespace stomp_moveit

@@ -25,6 +25,10 @@ public:
 
   void clear() override;
 
+  planning_scene::PlanningScenePtr getStompPlanningScene() const;
+
+  const Params &getParams() const;
+
 private:
   const stomp_moveit::Params params_;
   std::shared_ptr<stomp::Stomp> stomp_;

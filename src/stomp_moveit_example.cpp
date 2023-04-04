@@ -85,7 +85,7 @@ int main(int argc, char** argv)
   using namespace stomp_moveit;
   auto noise_generator_fn = noise::get_normal_distribution_generator(config.num_timesteps, { 0.1, 0.1, 0.1, 0.1, 0.05,
                                                                                              0.05, 0.05 } /* stddev */);
-  auto cost_fn = costs::get_collision_cost_function(planning_scene, group, 1.0 /* collision penalty */);
+  auto cost_fn = costs::get_collision_cost_function(planning_scene, group, 1.0 /* collision penalty */, group->getName() /* collision group */);
   auto filter_fn = filters::simple_smoothing_matrix(config.num_timesteps);
   auto iteration_callback_fn = visualization::get_iteration_path_publisher(visual_tools, group);
   auto done_callback_fn = visualization::get_success_trajectory_publisher(visual_tools, group);

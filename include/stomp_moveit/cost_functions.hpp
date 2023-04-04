@@ -13,7 +13,7 @@ namespace costs
 constexpr double COL_CHECK_DISTANCE = 0.05;
 
 CostFn get_collision_cost_function(const std::shared_ptr<const planning_scene::PlanningScene>& planning_scene,
-                                   const moveit::core::JointModelGroup* group, double collision_penalty)
+                                   const moveit::core::JointModelGroup* group, double collision_penalty, std::string collision_group)
 {
   const auto& joints = group ? group->getActiveJointModels() : planning_scene->getRobotModel()->getActiveJointModels();
   const auto& group_name = group ? group->getName() : "";
@@ -57,7 +57,7 @@ CostFn get_collision_cost_function(const std::shared_ptr<const planning_scene::P
 //        found_collision = found_collision || collision_result.collision || collision_result.distance != -1 && collision_result.distance < 0.005;
 //        bool col = planning_scene->isStateColliding(*sample_state, "");
 //        bool col2 = planning_scene->isStateColliding(*sample_state, group_name);
-        found_collision = planning_scene->isStateColliding(*sample_state, "spinbot_gripper");
+        found_collision = planning_scene->isStateColliding(*sample_state, collision_group);
 //        double dst_to_col = planning_scene->distanceToCollisionUnpadded(*sample_state);
 //        found_collision = dst_to_col != -1 && dst_to_col < 0.005;
 
