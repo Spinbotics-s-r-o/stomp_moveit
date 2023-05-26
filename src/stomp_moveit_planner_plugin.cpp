@@ -3,6 +3,7 @@
 
 #include <rclcpp/node.hpp>
 #include <rclcpp/logging.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
 
 namespace stomp_moveit
 {
@@ -13,12 +14,8 @@ using namespace planning_interface;
 class StompPlannerManager : public PlannerManager
 {
 public:
-  StompPlannerManager()
-  {
-  }
-  ~StompPlannerManager()
-  {
-  }
+  StompPlannerManager() = default;
+  ~StompPlannerManager() override = default;
 
   bool initialize(const moveit::core::RobotModelConstPtr& model, const rclcpp::Node::SharedPtr& node,
                   const std::string& parameter_namespace) override
@@ -63,10 +60,19 @@ public:
       return nullptr;
     }
 
-    PlanningContextPtr planning_context =
-        std::make_shared<StompPlanningContext>("STOMP", req.group_name, param_listener_->get_params());
+    auto const params = param_listener_->get_params();
+
+    std::shared_ptr<StompPlanningContext> planning_context =
+        std::make_shared<StompPlanningContext>("STOMP", req.group_name, params);
     planning_context->setPlanningScene(planning_scene);
     planning_context->setMotionPlanRequest(req);
+
+    if (!params.path_marker_topic.empty())
+    {
+      auto path_publisher = node_->create_publisher<visualization_msgs::msg::MarkerArray>(params.path_marker_topic,
+                                                                                          rclcpp::SystemDefaultsQoS());
+      planning_context->setPathPublisher(path_publisher);
+    }
 
     return planning_context;
   }
@@ -83,18 +89,6 @@ public:
     {
       RCLCPP_ERROR(LOGGER, "Invalid joint group '%s'", req.group_name.c_str());
       return false;
-    }
-
-    const auto& pc = req.path_constraints;
-    if (!(pc.joint_constraints.empty() && pc.position_constraints.empty() && pc.orientation_constraints.empty() &&
-          pc.visibility_constraints.empty()))
-    {
-      RCLCPP_WARN(LOGGER, "Ignoring path constraints - not implemented!");
-    }
-
-    if (!req.trajectory_constraints.constraints.empty())
-    {
-      RCLCPP_WARN(LOGGER, "Ignoring trajectory constraints - not implemented!");
     }
 
     if (!req.reference_trajectories.empty())
