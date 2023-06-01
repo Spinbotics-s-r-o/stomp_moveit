@@ -173,9 +173,9 @@ bool StompPlanningContext::solve(planning_interface::MotionPlanResponse& res)
 
   planning_scene_stomp_ = planning_scene::PlanningScene::clone(getPlanningScene());
   // Response output
-  auto& trajectory = res.trajectory_;
-  auto& planning_time = res.planning_time_;
-  auto& result_code = res.error_code_.val;
+  auto& trajectory = res.trajectory;
+  auto& planning_time = res.planning_time;
+  auto& result_code = res.error_code.val;
   result_code = moveit_msgs::msg::MoveItErrorCodes::SUCCESS;  // Default to happy path
 
   // Extract start and goal states
