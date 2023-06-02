@@ -1,3 +1,41 @@
+/*********************************************************************
+ * Software License Agreement (BSD License)
+ *
+ *  Copyright (c) 2023, PickNik Inc.
+ *  All rights reserved.
+ *
+ *  Redistribution and use in source and binary forms, with or without
+ *  modification, are permitted provided that the following conditions
+ *  are met:
+ *
+ *   * Redistributions of source code must retain the above copyright
+ *     notice, this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the following
+ *     disclaimer in the documentation and/or other materials provided
+ *     with the distribution.
+ *   * Neither the name of PickNik Inc. nor the names of its
+ *     contributors may be used to endorse or promote products derived
+ *     from this software without specific prior written permission.
+ *
+ *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ *  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ *  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ *  FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ *  COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ *  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ *  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ *  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+ *  ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ *  POSSIBILITY OF SUCH DAMAGE.
+ *********************************************************************/
+
+/** @file
+ * @author Henning Kayser
+ **/
+
 #include <atomic>
 #include <future>
 
@@ -9,7 +47,6 @@
 #include <stomp_moveit/noise_generators.hpp>
 #include <stomp_moveit/cost_functions.hpp>
 #include <stomp_moveit/stomp_moveit_task.hpp>
-
 #include <stomp_moveit_parameters.hpp>
 
 #include <moveit/constraint_samplers/constraint_sampler_manager.h>
@@ -17,16 +54,21 @@
 
 namespace stomp_moveit
 {
+static const rclcpp::Logger LOGGER = rclcpp::get_logger("stomp_moveit");
+
+// @brief Run a planning attempt with STOMP, either providing start and goal states or an optional seed trajectory
 bool solveWithStomp(const std::shared_ptr<stomp::Stomp>& stomp, const moveit::core::RobotState& start_state,
                     const moveit::core::RobotState& goal_state, const moveit::core::JointModelGroup* group,
                     const robot_trajectory::RobotTrajectoryPtr& input_trajectory,
-                    robot_trajectory::RobotTrajectoryPtr& trajectory)
+                    robot_trajectory::RobotTrajectoryPtr& output_trajectory)
 {
   Eigen::MatrixXd waypoints;
   const auto& joints = group->getActiveJointModels();
-  bool success;
+  bool success = false;
   if (!input_trajectory || input_trajectory->empty())
+  {
     success = stomp->solve(get_positions(start_state, joints), get_positions(goal_state, joints), waypoints);
+  }
   else
   {
     auto input = robot_trajectory_to_matrix(*input_trajectory);
@@ -34,19 +76,22 @@ bool solveWithStomp(const std::shared_ptr<stomp::Stomp>& stomp, const moveit::co
   }
   if (success)
   {
-    trajectory = std::make_shared<robot_trajectory::RobotTrajectory>(start_state.getRobotModel(), group);
-    fill_robot_trajectory(waypoints, start_state, *trajectory);
+    output_trajectory = std::make_shared<robot_trajectory::RobotTrajectory>(start_state.getRobotModel(), group);
+    fill_robot_trajectory(waypoints, start_state, *output_trajectory);
   }
 
   return success;
 }
 
+// @brief Extract a robot trajectory from the seed waypoints passed with a motion plan request
 bool extractSeedTrajectory(const planning_interface::MotionPlanRequest& req,
-                           const moveit::core::RobotModelConstPtr robot_model,
+                           const moveit::core::RobotModelConstPtr& robot_model,
                            robot_trajectory::RobotTrajectoryPtr& seed)
 {
   if (req.trajectory_constraints.constraints.empty())
+  {
     return false;
+  }
 
   const auto* joint_group = robot_model->getJointModelGroup(req.group_name);
   const auto& names = joint_group->getActiveJointModelNames();
@@ -60,8 +105,7 @@ bool extractSeedTrajectory(const planning_interface::MotionPlanRequest& req,
     auto n = constraints[i].joint_constraints.size();
     if (n != dof)
     {  // first test to ensure that dimensionality is correct
-      RCLCPP_WARN(rclcpp::get_logger("stomp_moveit"),
-                  "Seed trajectory index %lu does not have %lu constraints (has %lu instead).", i, dof, n);
+      RCLCPP_WARN(LOGGER, "Seed trajectory index %lu does not have %lu constraints (has %lu instead).", i, dof, n);
       return false;
     }
 
@@ -72,9 +116,8 @@ bool extractSeedTrajectory(const planning_interface::MotionPlanRequest& req,
       const auto& c = constraints[i].joint_constraints[j];
       if (c.joint_name != names[j])
       {
-        RCLCPP_WARN(rclcpp::get_logger("stomp_moveit"),
-                    "Seed trajectory (index %lu, joint %lu) joint name '%s' does not match expected name '%s'", i, j,
-                    c.joint_name.c_str(), names[j].c_str());
+        RCLCPP_WARN(LOGGER, "Seed trajectory (index %lu, joint %lu) joint name '%s' does not match expected name '%s'",
+                    i, j, c.joint_name.c_str(), names[j].c_str());
         return false;
       }
       joint_pt.positions.push_back(c.position);
@@ -92,6 +135,7 @@ bool extractSeedTrajectory(const planning_interface::MotionPlanRequest& req,
   return !seed->empty();
 }
 
+// @brief Build a STOMP task that uses MoveIt callback types for planning in STOMP
 stomp::TaskPtr createStompTask(const stomp::StompConfiguration& config, StompPlanningContext& context)
 {
   const size_t num_timesteps = config.num_timesteps;
@@ -135,11 +179,13 @@ stomp::TaskPtr createStompTask(const stomp::StompConfiguration& config, StompPla
   return task;
 }
 
+// @brief Create a valid STOMP configuration from runtime parameters and dimensions provided by the planning request
 stomp::StompConfiguration getStompConfig(const stomp_moveit::Params& params, size_t num_dimensions)
 {
   stomp::StompConfiguration config;
-  config.num_dimensions = num_dimensions;                                                 // Copied from joint count
-  config.initialization_method = stomp::TrajectoryInitializations::LINEAR_INTERPOLATION;  // TODO: set from request
+  config.num_dimensions = num_dimensions;  // Copied from joint count
+  // TODO(henningkayser): set from request or params
+  config.initialization_method = stomp::TrajectoryInitializations::LINEAR_INTERPOLATION;
   config.num_iterations = params.num_iterations;
   config.num_iterations_after_valid = params.num_iterations_after_valid;
   config.num_timesteps = params.num_timesteps;
@@ -163,11 +209,8 @@ bool StompPlanningContext::solve(planning_interface::MotionPlanResponse& res)
   // Start time
   auto time_start = std::chrono::steady_clock::now();
 
-  // Response output
-  auto& trajectory = res.trajectory;
-  auto& planning_time = res.planning_time;
-  auto& result_code = res.error_code.val;
-  result_code = moveit_msgs::msg::MoveItErrorCodes::SUCCESS;  // Default to happy path
+  // Default to happy path
+  res.error_code.val = moveit_msgs::msg::MoveItErrorCodes::SUCCESS;
 
   // Extract start and goal states
   const auto& req = getMotionPlanRequest();
@@ -177,7 +220,7 @@ bool StompPlanningContext::solve(planning_interface::MotionPlanResponse& res)
   auto goal_sampler = sampler_manager.selectSampler(getPlanningScene(), getGroupName(), req.goal_constraints.at(0));
   if (!goal_sampler || !goal_sampler->sample(goal_state))
   {
-    result_code = moveit_msgs::msg::MoveItErrorCodes::INVALID_GOAL_CONSTRAINTS;
+    res.error_code.val = moveit_msgs::msg::MoveItErrorCodes::INVALID_GOAL_CONSTRAINTS;
     return false;  // Can't plan without valid goal state
   }
 
@@ -186,7 +229,9 @@ bool StompPlanningContext::solve(planning_interface::MotionPlanResponse& res)
   auto config = getStompConfig(params_, group->getActiveJointModels().size() /* num_dimensions */);
   robot_trajectory::RobotTrajectoryPtr input_trajectory;
   if (extractSeedTrajectory(request_, getPlanningScene()->getRobotModel(), input_trajectory))
+  {
     config.num_timesteps = input_trajectory->size();
+  }
   const auto task = createStompTask(config, *this);
   stomp_ = std::make_shared<stomp::Stomp>(config, task);
 
@@ -203,12 +248,12 @@ bool StompPlanningContext::solve(planning_interface::MotionPlanResponse& res)
   });
 
   // Solve
-  if (!solveWithStomp(stomp_, start_state, goal_state, group, input_trajectory, trajectory))
+  if (!solveWithStomp(stomp_, start_state, goal_state, group, input_trajectory, res.trajectory))
   {
     // We timed out if the timeout task has completed so that the timeout future is valid and ready
     bool timed_out =
         timeout_future.valid() && timeout_future.wait_for(std::chrono::nanoseconds(1)) == std::future_status::ready;
-    result_code =
+    res.error_code.val =
         timed_out ? moveit_msgs::msg::MoveItErrorCodes::TIMED_OUT : moveit_msgs::msg::MoveItErrorCodes::PLANNING_FAILED;
   }
   stomp_.reset();
@@ -220,13 +265,16 @@ bool StompPlanningContext::solve(planning_interface::MotionPlanResponse& res)
 
   // Stop time
   std::chrono::duration<double> elapsed_seconds = std::chrono::steady_clock::now() - time_start;
-  planning_time = elapsed_seconds.count();
+  res.planning_time = elapsed_seconds.count();
 
-  return result_code == moveit_msgs::msg::MoveItErrorCodes::SUCCESS;
+  return res.error_code.val == moveit_msgs::msg::MoveItErrorCodes::SUCCESS;
 }
 
 bool StompPlanningContext::solve(planning_interface::MotionPlanDetailedResponse& /*res*/)
 {
+  // TODO(#2168): implement this function
+  RCLCPP_ERROR(LOGGER,
+               "StompPlanningContext::solve(planning_interface::MotionPlanDetailedResponse&) is not implemented!");
   return false;
 }
 
@@ -247,7 +295,7 @@ void StompPlanningContext::clear()
 }
 
 void StompPlanningContext::setPathPublisher(
-    std::shared_ptr<rclcpp::Publisher<visualization_msgs::msg::MarkerArray>> path_publisher)
+    const std::shared_ptr<rclcpp::Publisher<visualization_msgs::msg::MarkerArray>>& path_publisher)
 {
   path_publisher_ = path_publisher;
 }

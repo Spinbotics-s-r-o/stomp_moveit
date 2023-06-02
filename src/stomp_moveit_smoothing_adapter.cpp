@@ -1,7 +1,7 @@
 /*********************************************************************
  * Software License Agreement (BSD License)
  *
- *  Copyright (c) 2019, Henning Kayser
+ *  Copyright (c) 2023, PickNik Inc.
  *  All rights reserved.
  *
  *  Redistribution and use in source and binary forms, with or without
@@ -14,7 +14,7 @@
  *     copyright notice, this list of conditions and the following
  *     disclaimer in the documentation and/or other materials provided
  *     with the distribution.
- *   * Neither the name of Raghavender Sahdev nor the names of its
+ *   * Neither the name of PickNik Inc. nor the names of its
  *     contributors may be used to endorse or promote products derived
  *     from this software without specific prior written permission.
  *
@@ -32,7 +32,10 @@
  *  POSSIBILITY OF SUCH DAMAGE.
  *********************************************************************/
 
-/* Author: Henning Kayser */
+/** @file
+ * @author Henning Kayser
+ * @brief: A PlanningRequestAdapter plugin for optimizing already solved trajectories with STOMP.
+ */
 
 // ROS
 #include <rclcpp/rclcpp.hpp>
@@ -49,6 +52,7 @@ using namespace planning_interface;
 
 namespace stomp_moveit
 {
+/** @brief This adapter uses STOMP for optimizing pre-solved trajectories */
 class StompSmoothingAdapter : public planning_request_adapter::PlanningRequestAdapter
 {
 public:
@@ -56,7 +60,6 @@ public:
   {
   }
 
-  // todo[noetic] add override again
   void initialize(const rclcpp::Node::SharedPtr& node, const std::string& parameter_namespace) override
   {
     param_listener_ = std::make_shared<stomp_moveit::ParamListener>(node, parameter_namespace);
@@ -71,10 +74,12 @@ public:
                     const planning_interface::MotionPlanRequest& req, planning_interface::MotionPlanResponse& res,
                     std::vector<std::size_t>& /*added_path_index*/) const override
   {
-    // Following call to planner() calls the OMPL planner and stores the trajectory inside the MotionPlanResponse res
-    // variable which is then used by STOMP for optimization of the computed trajectory
+    // Following call to planner() calls the motion planner defined for the pipeline and stores the trajectory inside
+    // the MotionPlanResponse res variable which is then passed to STOMP for optimization
     if (!planner(ps, req, res))
+    {
       return false;
+    }
 
     // STOMP reads the seed trajectory from trajectory constraints so we need to convert the waypoints first
     const size_t seed_waypoint_count = res.trajectory->getWayPointCount();
@@ -104,8 +109,6 @@ public:
 
     // Solve
     RCLCPP_INFO(rclcpp::get_logger("stomp_moveit"), "Smoothing result trajectory with STOMP");
-    //    planning_interface::MotionPlanDetailedResponse stomp_res;
-    //    bool success = planning_context->solve(stomp_res);
     planning_interface::MotionPlanResponse stomp_res;
     bool success = planning_context->solve(stomp_res);
     if (success)

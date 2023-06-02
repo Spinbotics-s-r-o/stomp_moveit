@@ -1,3 +1,42 @@
+/*********************************************************************
+ * Software License Agreement (BSD License)
+ *
+ *  Copyright (c) 2023, PickNik Inc.
+ *  All rights reserved.
+ *
+ *  Redistribution and use in source and binary forms, with or without
+ *  modification, are permitted provided that the following conditions
+ *  are met:
+ *
+ *   * Redistributions of source code must retain the above copyright
+ *     notice, this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the following
+ *     disclaimer in the documentation and/or other materials provided
+ *     with the distribution.
+ *   * Neither the name of PickNik Inc. nor the names of its
+ *     contributors may be used to endorse or promote products derived
+ *     from this software without specific prior written permission.
+ *
+ *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ *  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ *  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ *  FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ *  COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ *  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ *  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ *  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+ *  ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ *  POSSIBILITY OF SUCH DAMAGE.
+ *********************************************************************/
+
+/** @file
+ * @author Henning Kayser
+ * @brief: Helper functions for visualizing trajectory markers for STOMP planning iterations.
+ */
+
 #pragma once
 
 #include <stomp_moveit/stomp_moveit_task.hpp>
@@ -25,6 +64,15 @@ const auto GREEN = [](const double& a) {
   color.a = a;
   return color;
 };
+
+/**
+ * @brief Creates an array of markers to visualize the trajectory EE-positions
+ *
+ * @param robot_trajectory Trajectory to visualize
+ * @param ee_parent_link End-Effector link
+ * @param color Color of the markers
+ * @return Marker array that can be visualized in RVIZ
+ */
 visualization_msgs::msg::MarkerArray
 createTrajectoryMarkerArray(const robot_trajectory::RobotTrajectory& robot_trajectory,
                             const moveit::core::LinkModel* ee_parent_link,
@@ -59,9 +107,18 @@ createTrajectoryMarkerArray(const robot_trajectory::RobotTrajectory& robot_traje
 }
 }  // namespace
 
+/**
+ * @brief Get post iteration function that publishes the EE path of the generated trajectory
+ *
+ * @param marker_publisher Marker publisher that is used to publish the path
+ * @param planning_scene Current planning scene
+ * @param group JointModelGroup to identify the EE tip
+ * @return If the marker_publisher is not a nullptr a post-iteration function that publishes the generated EE path is
+ * returned. Otherwise, a function that does nothing.
+ */
 PostIterationFn
-get_iteration_path_publisher(rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_publisher,
-                             std::shared_ptr<const planning_scene::PlanningScene> planning_scene,
+get_iteration_path_publisher(const rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr& marker_publisher,
+                             const std::shared_ptr<const planning_scene::PlanningScene>& planning_scene,
                              const moveit::core::JointModelGroup* group)
 {
   assert(group != nullptr);
@@ -90,10 +147,19 @@ get_iteration_path_publisher(rclcpp::Publisher<visualization_msgs::msg::MarkerAr
   return path_publisher;
 }
 
-DoneFn
-get_success_trajectory_publisher(rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_publisher,
-                                 std::shared_ptr<const planning_scene::PlanningScene> planning_scene,
-                                 const moveit::core::JointModelGroup* group)
+/**
+ * @brief Get Done function that publishes the EE path of the generated trajectory
+ *
+ * @param marker_publisher Marker publisher that is used to publish the path
+ * @param planning_scene Current planning scene
+ * @param group JointModelGroup to identify the EE tip
+ * @return If the marker_publisher is not a nullptr a Done function that publishes the generated EE path is returned.
+ * Otherwise, a function that does nothing.
+ */
+DoneFn get_success_trajectory_publisher(
+    const rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr& marker_publisher,
+    const std::shared_ptr<const planning_scene::PlanningScene>& planning_scene,
+    const moveit::core::JointModelGroup* group)
 {
   assert(group != nullptr);
 
